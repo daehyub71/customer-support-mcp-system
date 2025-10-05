@@ -1,0 +1,55 @@
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: confluence-postgres
+    environment:
+      POSTGRES_DB: confluencedb
+      POSTGRES_USER: confluence
+      POSTGRES_PASSWORD: confluencepw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U confluence -d confluencedb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  confluence:
+    image: atlassian/confluence:latest
+    container_name: confluence
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8090:8090"                       # 브라우저: http://localhost:8090
+    environment:
+      # Confluence가 부팅 시 JDBC를 자동 세팅하도록 주입 (마법사에서 덜 타이핑)
+      ATL_DB_TYPE: postgresql
+      ATL_JDBC_URL: jdbc:postgresql://postgres:5432/confluencedb
+      ATL_JDBC_USER: confluence
+      ATL_JDBC_PASSWORD: confluencepw
+      # 메모리(필요하면 늘리세요: 2048m/3072m 등)
+      JVM_MINIMUM_MEMORY: 1024m
+      JVM_MAXIMUM_MEMORY: 2048m
+    volumes:
+      - confluence_data:/var/atlassian/application-data/confluence
+
+  mcp-atlassian:
+    image: ghcr.io/sooperset/mcp-atlassian:latest
+    container_name: mcp-atlassian
+    depends_on:
+      - confluence
+    ports:
+      - "9000:9000"                       # MCP HTTP 엔드포인트
+    command: ["--transport","streamable-http","--port","9000","-vv"]
+    environment:
+      # 로컬 Confluence에 붙일 경우 (Cloud 못 쓰는 폐쇄망 가정)
+      ATLASSIAN_URL: ${ATLASSIAN_URL:-http://confluence:8090}
+      # Atlassian 인증 정보 (.env 파일에서 로드)
+      ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL}
+      ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN}
+
+volumes:
+  pgdata:
+  confluence_data:
